@@ -77,6 +77,8 @@ load_project() {
   URL_PREFIX="${URL_PREFIX:-}"
   NGINX_STRATEGY="${NGINX_STRATEGY:-standalone}"
   EXTRA_PIP_PACKAGES="${EXTRA_PIP_PACKAGES:-flask gunicorn}"
+  BUILD_CMD="${BUILD_CMD:-}"
+  BUILD_DIR="${BUILD_DIR:-${REPO_DIR}}"
 }
 
 install_packages() {
@@ -166,6 +168,18 @@ setup_virtualenv() {
   fi
 }
 
+run_build_hook() {
+  if [[ -z "${BUILD_CMD:-}" ]]; then
+    return
+  fi
+  echo "==> BUILD_CMD: ${BUILD_CMD}"
+  sudo -u "${APP_USER}" -H bash -lc "
+    set -e
+    cd \"${BUILD_DIR}\"
+    ${BUILD_CMD}
+  "
+}
+
 write_systemd_unit() {
   local service_path="/etc/systemd/system/${SERVICE_NAME}.service"
   {
@@ -211,17 +225,62 @@ configure_nginx_prefix() {
   [[ -f "${NGINX_SITE}" ]] || { echo "Brak ${NGINX_SITE}" >&2; exit 1; }
   [[ ! -f "${NGINX_SITE}.bak" ]] && cp "${NGINX_SITE}" "${NGINX_SITE}.bak"
 
-  local begin_marker="# --- ${SERVICE_NAME} path prefix ---"
-  local end_marker="# --- end ${SERVICE_NAME} ---"
-  if grep -q "${begin_marker}" "${NGINX_SITE}"; then
-    awk -v begin="${begin_marker}" -v end="${end_marker}" '
-      BEGIN{skip=0}
-      index($0, begin){skip=1; next}
-      index($0, end){skip=0; next}
-      skip==1{next}
-      {print}
-    ' "${NGINX_SITE}" > "${NGINX_SITE}.tmp" && mv "${NGINX_SITE}.tmp" "${NGINX_SITE}"
+  local prefix_label="${URL_PREFIX#/}"
+  declare -a labels=()
+  labels+=("${SERVICE_NAME}")
+  labels+=("${APP_NAME}")
+  [[ -n "${APP_NAME//-/ }" && "${APP_NAME//-/ }" != "${APP_NAME}" ]] && labels+=("${APP_NAME//-/ }")
+  [[ -n "${prefix_label}" ]] && labels+=("${prefix_label}")
+  if [[ -n "${prefix_label}" ]]; then
+    local prefix_spaced="${prefix_label//-/ }"
+    [[ "${prefix_spaced}" != "${prefix_label}" ]] && labels+=("${prefix_spaced}")
   fi
+
+  python3 - "$NGINX_SITE" "${labels[@]}" <<'PY'
+import sys
+
+path = sys.argv[1]
+labels = [label.strip().lower() for label in sys.argv[2:] if label.strip()]
+if not labels:
+    sys.exit(0)
+
+with open(path, encoding="utf-8") as fh:
+    lines = fh.readlines()
+
+result = []
+skip = False
+current_label = None
+
+def match_start(line):
+    lower = line.strip().lower()
+    for label in labels:
+        if lower == f"# --- {label} path prefix ---":
+            return label
+    return None
+
+def match_end(line, label):
+    if not label:
+        return False
+    lower = line.strip().lower()
+    return lower == f"# --- end {label} ---"
+
+for line in lines:
+    if not skip:
+        label = match_start(line)
+        if label:
+            skip = True
+            current_label = label
+            continue
+    else:
+        if match_end(line, current_label):
+            skip = False
+            current_label = None
+        continue
+    result.append(line)
+
+with open(path, "w", encoding="utf-8") as fh:
+    fh.writelines(result)
+PY
 
   local domain_regex
   domain_regex="$(printf '%s\n' "${DOMAIN}" | sed 's/[][\\.^$*+?{}()|]/\\&/g')"
@@ -235,7 +294,7 @@ configure_nginx_prefix() {
         print "    # --- " name " path prefix ---";
         print "    location = " prefix " { return 301 " prefix "/; }";
         print "    location ^~ " prefix "/ {";
-        print "        proxy_pass http://" bind "/;";
+        print "        proxy_pass http://" bind ";";
         print "        proxy_set_header Host $host;";
         print "        proxy_set_header X-Real-IP $remote_addr;";
         print "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;";
@@ -343,30 +402,32 @@ case "${ACTION}" in
     ;;
   setup)
     require_project_arg "${@:2}"
-    require_root
-    load_project "${2}"
-    install_packages
-    ensure_user_and_dirs
-    setup_ssh
-    sync_repo
-    setup_virtualenv
-    write_systemd_unit
-    configure_nginx
-    reload_services
-    show_status
-    show_summary
+  require_root
+  load_project "${2}"
+  install_packages
+  ensure_user_and_dirs
+  setup_ssh
+  sync_repo
+  setup_virtualenv
+  run_build_hook
+  write_systemd_unit
+  configure_nginx
+  reload_services
+  show_status
+  show_summary
     ;;
   update)
     require_project_arg "${@:2}"
-    require_root
-    load_project "${2}"
-    ensure_user_and_dirs
-    sync_repo
-    setup_virtualenv
-    write_systemd_unit
-    configure_nginx
-    reload_services
-    show_status
+  require_root
+  load_project "${2}"
+  ensure_user_and_dirs
+  sync_repo
+  setup_virtualenv
+  run_build_hook
+  write_systemd_unit
+  configure_nginx
+  reload_services
+  show_status
     ;;
   status)
     require_project_arg "${@:2}"

@@ -17,7 +17,7 @@ Skrypt `production_manager.sh` automatuzuje zarządzanie wieloma aplikacjami Fla
 ```bash
 ./production_manager.sh update <projekt>
 ```
-: odświeża kod, zależności oraz ponownie generuje unit i konfigurację Nginx bez ponownego instalowania pakietów systemowych. Również wymaga `sudo`.
+: odświeża kod, zależności oraz ponownie generuje unit i konfigurację Nginx bez ponownego instalowania pakietów systemowych. Również wymaga `sudo`. Jeżeli w pliku `<projekt>.env` ustawisz `BUILD_CMD` (opcjonalnie `BUILD_DIR`), zostanie on uruchomiony podczas `setup` i `update`.
 
 ```bash
 ./production_manager.sh status <projekt>

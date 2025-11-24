@@ -18,6 +18,8 @@ W tym katalogu znajduje się konfiguracja każdej aplikacji obsługiwanej przez 
 - `NGINX_SITE` – plik konfiguracyjny Nginx (np. `/etc/nginx/sites-available/moderacja.conf`).
 - `NGINX_STRATEGY` – `prefix`, `standalone` lub `none`, decyduje o sposobie wpisania reverse proxy.
 - `EXTRA_PIP_PACKAGES` – dodatkowe pakiety instalowane w venv, gdy projekt nie posiada kompletnego `requirements.txt`.
+- `BUILD_CMD` – opcjonalna komenda budująca/aktualizująca frontend lub inne artefakty; uruchamiana jako `APP_USER` w katalogu `BUILD_DIR` (domyślnie `REPO_DIR`) w trakcie `setup` i `update`.
+- `BUILD_DIR` – katalog dla `BUILD_CMD` (jeśli pominięty użyty zostanie `REPO_DIR`).
 
 ## Dodanie nowego projektu
 
